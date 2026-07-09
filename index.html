@@ -23,14 +23,11 @@
 </head>
 <body class="bg-gray-50 text-gray-800 h-screen flex flex-col overflow-hidden">
   <!-- 顶部栏 -->
-  <header class="bg-white shadow-sm px-5 py-3 flex items-center justify-between gap-4 flex-shrink-0">
-    <div class="flex items-center gap-4">
-      <h1 class="text-lg font-bold text-gray-900">会员标签分布</h1>
-    </div>
-    <div class="flex items-center gap-2">
-      <input id="searchInput" type="text" placeholder="搜索标签" class="border border-gray-300 rounded px-2 py-1 text-xs w-48 focus:outline-none focus:ring-1 focus:ring-blue-500">
-      <button id="refreshBtn" class="bg-blue-600 text-white px-2 py-1 rounded text-xs hover:bg-blue-700 whitespace-nowrap">刷新</button>
-    </div>
+  <header class="bg-white shadow-sm px-5 py-3 flex items-center gap-3 flex-shrink-0">
+    <h1 class="text-lg font-bold text-gray-900">会员标签分布</h1>
+    <input id="searchInput" type="text" placeholder="搜索标签" class="border border-gray-300 rounded px-2 py-1 text-xs w-48 focus:outline-none focus:ring-1 focus:ring-blue-500">
+    <button id="refreshBtn" class="bg-blue-600 text-white px-2 py-1 rounded text-xs hover:bg-blue-700 whitespace-nowrap">刷新</button>
+    <span class="text-xs text-gray-400">更新：<span id="updateTime">--</span></span>
   </header>
 
   <!-- 主区域：左侧标签列表 + 右侧分布详情 -->
@@ -51,8 +48,7 @@
   </main>
 
   <!-- 底栏 -->
-  <footer class="bg-white border-t border-gray-100 px-5 py-2 text-xs text-gray-400 flex justify-between flex-shrink-0">
-    <span>更新：<span id="updateTime">--</span></span>
+  <footer class="bg-white border-t border-gray-100 px-5 py-2 text-xs text-gray-400 flex justify-end flex-shrink-0">
     <span>跨门店数据可能存在延迟</span>
   </footer>
 
