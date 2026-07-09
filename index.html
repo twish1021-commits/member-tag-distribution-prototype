@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>会员标签分布</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .bar-bg { background-color: #e5e7eb; border-radius: 9999px; height: 0.5rem; overflow: hidden; }
+    .bar-fill { background: linear-gradient(90deg, #3b82f6, #60a5fa); height: 100%; border-radius: 9999px; transition: width 0.3s ease; }
+    .sidebar-item { cursor: pointer; padding: 6px 12px; border-radius: 6px; transition: background 0.15s; }
+    .sidebar-item:hover { background-color: #f3f4f6; }
+    .sidebar-item.active { background-color: #eff6ff; border-left: 3px solid #3b82f6; }
+    .value-row:hover { background-color: #f9fafb; }
+    .matched { background-color: #eff6ff; }
+    .sidebar::-webkit-scrollbar { width: 4px; }
+    .sidebar::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
+    .group-header { cursor: pointer; user-select: none; }
+    .group-header:hover { background-color: #f9fafb; }
+    .group-toggle { transition: transform 0.2s ease; }
+    .group-toggle.collapsed { transform: rotate(-90deg); }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-800 h-screen flex flex-col overflow-hidden">
+  <!-- 顶部栏 -->
+  <header class="bg-white shadow-sm px-5 py-3 flex items-center justify-between gap-4 flex-shrink-0">
+    <div class="flex items-center gap-4">
+      <h1 class="text-lg font-bold text-gray-900">会员标签分布</h1>
+    </div>
+    <div class="flex items-center gap-2">
+      <select id="storeSelect" class="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
+        <option>总部演示店</option>
+        <option>分店 A</option>
+        <option>分店 B</option>
+      </select>
+      <input id="searchInput" type="text" placeholder="搜索标签" class="border border-gray-300 rounded px-2 py-1 text-xs w-48 focus:outline-none focus:ring-1 focus:ring-blue-500">
+      <button id="refreshBtn" class="bg-blue-600 text-white px-2 py-1 rounded text-xs hover:bg-blue-700 whitespace-nowrap">刷新</button>
+    </div>
+  </header>
+
+  <!-- 主区域：左侧标签列表 + 右侧分布详情 -->
+  <main class="flex flex-1 overflow-hidden">
+    <!-- 左侧边栏 -->
+    <aside class="w-64 bg-white border-r border-gray-200 flex flex-col flex-shrink-0">
+      <div class="px-3 py-2 border-b border-gray-100 text-xs font-semibold text-gray-500 flex items-center justify-between">
+        <span>标签列表</span>
+        <span id="tagCountBadge" class="text-blue-600">0</span>
+      </div>
+      <div id="sidebarList" class="sidebar flex-1 overflow-y-auto px-2 py-2 space-y-1"></div>
+    </aside>
+
+    <!-- 右侧内容 -->
+    <section class="flex-1 overflow-y-auto px-6 py-4">
+      <div id="detailPanel"></div>
+    </section>
+  </main>
+
+  <!-- 底栏 -->
+  <footer class="bg-white border-t border-gray-100 px-5 py-2 text-xs text-gray-400 flex justify-between flex-shrink-0">
+    <span>更新：<span id="updateTime">--</span></span>
+    <span>跨门店数据可能存在延迟</span>
+  </footer>
+
+<script>
+const TOTAL = 1000;
+let selectedTag = null;
+let currentQuery = '';
+let groupCollapsed = { system: false, personal: false };
+
+function generateCounts(n, total = TOTAL) {
+  const weights = Array.from({length: n}, () => Math.random() + 0.1);
+  const sum = weights.reduce((a, b) => a + b, 0);
+  const counts = weights.map(w => Math.floor(w / sum * total));
+  let diff = total - counts.reduce((a, b) => a + b, 0);
+  let idx = 0;
+  while (diff > 0) { counts[idx % counts.length]++; diff--; idx++; }
+  while (diff < 0) { if (counts[idx % counts.length] > 0) { counts[idx % counts.length]--; diff++; } idx++; }
+  return counts;
+}
+
+const systemTags = [
+  { name: '性别', values: ['男', '女', '未设置'] },
+  { name: '会员级别', values: ['临时卡', '普通卡', 'K金会员', '游币卡', '黑金卡', 'VIP', '升级卡', '白金卡', '中级会员'] },
+  { name: '年龄段', values: ['儿童', '少年', '青年', '中年', '老年'] },
+  { name: '入会渠道', values: ['门店', '微信小程序', '美团点评', '口碑', '淘宝', '抖音', '其它'] },
+  { name: '活跃度', values: ['沉睡', '低活跃度', '活跃度中', '活跃度高'] },
+  { name: '消费总金额', values: ['消费0元', '消费1k以内', '消费一两百', '消费两三百', '消费三四百', '消费五百起'] },
+  { name: '生日月份', values: ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'] },
+  { name: '是否已绑定', values: ['已绑定', '未绑定'] },
+  { name: '是否已关注', values: ['已关注', '未关注'] },
+  { name: '出生年', values: ['当年', '去年', '更早'] },
+  { name: '注册时间', values: ['当月', '近3个月', '近半年', '更早'] }
+].map(t => ({ ...t, category: 'system', counts: generateCounts(t.values.length) }));
+
+const personalNames = [
+  '小程序核销标签', '活力全开招募', '元旦活动', 'A店套餐标签', '特别店',
+  '免费入会会员', '双11活动', '购买套餐打标签', '聚享专属', '2月新注册会员',
+  '短信通知标签', '新客0.1元体验', '新春0.1元', '暑假卡',
+  '51活动参与', '预约会员', '送K歌会员', 'VIP体验会员', '老客召回'
+];
+const personalTags = personalNames.map(name => ({
+  name, category: 'personal', values: ['符合', '不符合'], counts: generateCounts(2)
+}));
+
+const allTags = [...systemTags, ...personalTags];
+
+function fmt(n) { return n.toLocaleString('zh-CN'); }
+
+function getFilteredTags() {
+  const q = currentQuery.trim().toLowerCase();
+  return allTags.filter(tag => !q || tag.name.toLowerCase().includes(q) || tag.values.some(v => v.toLowerCase().includes(q)));
+}
+
+function renderSidebar() {
+  const list = document.getElementById('sidebarList');
+  list.innerHTML = '';
+  const filtered = getFilteredTags();
+  document.getElementById('tagCountBadge').textContent = filtered.length;
+
+  // 按分类分组
+  const groups = { system: [], personal: [] };
+  filtered.forEach(t => groups[t.category].push(t));
+
+  const renderGroup = (title, items, badgeClass, catKey) => {
+    if (items.length === 0) return;
+    const collapsed = groupCollapsed[catKey];
+
+    const header = document.createElement('div');
+    header.className = 'group-header flex items-center gap-2 px-2 py-2 mt-1 mb-1 rounded';
+    header.innerHTML = `
+      <svg class="group-toggle w-3.5 h-3.5 text-gray-400 ${collapsed ? 'collapsed' : ''}" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.53a.75.75 0 01-1.08 0l-4.25-4.53a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
+      <span class="w-1.5 h-1.5 rounded-full ${badgeClass}"></span>
+      <span class="text-xs font-semibold text-gray-500 flex-1">${title}</span>
+      <span class="text-xs text-gray-400">${items.length}</span>
+    `;
+    header.addEventListener('click', () => {
+      groupCollapsed[catKey] = !groupCollapsed[catKey];
+      renderSidebar();
+    });
+    list.appendChild(header);
+
+    if (!collapsed) {
+      items.forEach(tag => {
+        const total = tag.counts.reduce((a, b) => a + b, 0);
+        const item = document.createElement('div');
+        item.className = `sidebar-item flex items-center gap-2 text-sm ${selectedTag === tag ? 'active' : ''}`;
+        item.innerHTML = `
+          <span class="truncate flex-1 text-gray-700 pl-1">${tag.name}</span>
+          <span class="text-xs text-gray-400">${fmt(total)}</span>
+        `;
+        item.addEventListener('click', () => {
+          selectedTag = tag;
+          renderSidebar();
+          renderDetail();
+        });
+        list.appendChild(item);
+      });
+    }
+  };
+
+  renderGroup('系统标签', groups.system, 'bg-purple-400', 'system');
+  renderGroup('个性化标签', groups.personal, 'bg-orange-400', 'personal');
+
+  if (filtered.length === 0) {
+    list.innerHTML = '<div class="text-center text-gray-400 text-sm py-8">无匹配标签</div>';
+  }
+}
+
+function renderDetail() {
+  const panel = document.getElementById('detailPanel');
+  if (!selectedTag) {
+    panel.innerHTML = `
+      <div class="flex flex-col items-center justify-center h-full text-gray-400">
+        <svg class="w-12 h-12 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 7h.01M7 3h5c.512 0 1.024.133 1.5.394M17 3h.01M17 7h.01M7 11h.01M17 11h.01M3 11h.01M3 7h.01M3 3h.01M11 21h5a2 2 0 002-2v-5a2 2 0 00-2-2H6a2 2 0 00-2 2v5a2 2 0 002 2h5z"/></svg>
+        <p class="text-sm">请从左侧选择标签查看分布</p>
+      </div>
+    `;
+    return;
+  }
+
+  const tag = selectedTag;
+  const tagTotal = tag.counts.reduce((a, b) => a + b, 0);
+  const q = currentQuery.trim().toLowerCase();
+  const tagNameMatch = q && tag.name.toLowerCase().includes(q);
+
+  const valueRows = tag.values.map((val, i) => {
+    const count = tag.counts[i];
+    const pct = (count / TOTAL * 100).toFixed(1);
+    const valueMatch = q && val.toLowerCase().includes(q);
+    const show = !q || tagNameMatch || valueMatch;
+    return { val, count, pct, valueMatch, show };
+  }).filter(r => r.show);
+
+  // 按人数降序
+  valueRows.sort((a, b) => b.count - a.count);
+
+  panel.innerHTML = `
+    <div class="mb-4 flex items-center gap-3">
+      <span class="text-xs px-2 py-0.5 rounded border ${tag.category === 'system' ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-orange-50 text-orange-700 border-orange-200'}">
+        ${tag.category === 'system' ? '系统' : '个性化'}
+      </span>
+      <h2 class="text-lg font-bold text-gray-900">${tag.name}</h2>
+      <span class="text-sm text-gray-500">预估 ${fmt(TOTAL)} 人</span>
+    </div>
+    <div class="bg-white rounded-lg border border-gray-200 overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 text-gray-500 text-xs">
+          <tr>
+            <th class="px-4 py-2 text-left w-1/4">标签值</th>
+            <th class="px-4 py-2 text-left w-2/5">分布</th>
+            <th class="px-4 py-2 text-right w-1/6">预估人数</th>
+            <th class="px-4 py-2 text-right w-1/6">占比</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${valueRows.map(r => `
+            <tr class="value-row border-b border-gray-100 ${r.valueMatch ? 'matched' : ''}">
+              <td class="px-4 py-2 text-gray-700">${r.val}</td>
+              <td class="px-4 py-2">
+                <div class="bar-bg">
+                  <div class="bar-fill" style="width: ${r.pct}%"></div>
+                </div>
+              </td>
+              <td class="px-4 py-2 text-right font-medium text-gray-900">${fmt(r.count)}</td>
+              <td class="px-4 py-2 text-right text-gray-500">${r.pct}%</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+// 搜索
+document.getElementById('searchInput').addEventListener('input', e => {
+  currentQuery = e.target.value;
+  const filtered = getFilteredTags();
+  // 若当前选中不在过滤结果中，自动选中第一个
+  if (selectedTag && !filtered.includes(selectedTag)) {
+    selectedTag = filtered.length > 0 ? filtered[0] : null;
+  }
+  renderSidebar();
+  renderDetail();
+});
+
+// 刷新数据
+document.getElementById('refreshBtn').addEventListener('click', () => {
+  allTags.forEach(tag => { tag.counts = generateCounts(tag.values.length); });
+  document.getElementById('updateTime').textContent = new Date().toLocaleString('zh-CN');
+  renderSidebar();
+  renderDetail();
+});
+
+// 门店切换
+document.getElementById('storeSelect').addEventListener('change', () => {
+  document.getElementById('refreshBtn').click();
+});
+
+// 初始化
+document.getElementById('updateTime').textContent = new Date().toLocaleString('zh-CN');
+// 默认选中第一个系统标签
+selectedTag = systemTags[0];
+renderSidebar();
+renderDetail();
+</script>
+</body>
+</html>
